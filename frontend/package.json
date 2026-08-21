@@ -1,0 +1,41 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" vite",
+    "build": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" vite build",
+    "lint": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" eslint .",
+    "preview": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" vite preview",
+    "webapp": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" node local-webapp-server.mjs",
+    "test:e2e": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" playwright test",
+    "test:e2e:ui": "PATH=\"$PWD/../.local-tools/node-v20.11.1-darwin-arm64/bin:$PATH\" playwright test --ui"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.31.0",
+    "@tanstack/react-table": "^8.17.3",
+    "axios": "^1.7.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.45.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-legacy": "^5.4.3",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.11.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "terser": "^5.50.0",
+    "vite": "^5.4.10"
+  }
+}

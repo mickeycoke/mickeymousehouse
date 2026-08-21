@@ -1,0 +1,7 @@
+# Static-file Caddy config for the frontend image (internal :80 only — the
+# top-level `caddy` service in docker-compose.prod.yml does TLS + routing).
+:80 {
+  root * /var/www/html
+  try_files {path} /index.html
+  file_server
+}

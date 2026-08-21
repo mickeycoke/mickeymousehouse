@@ -1,0 +1,15 @@
+{
+  "name": "Mickeymouse House",
+  "short_name": "Mickeymouse House",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

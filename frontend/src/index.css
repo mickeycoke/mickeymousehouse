@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Quiet focus for pointer users, clear ring for keyboard users. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+  /* Native controls inherit the app font instead of the OS default. */
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  /* Respect the iPhone safe areas (notch / home indicator) for pinned bars.
+     Add real padding ON TOP of the inset so buttons clear the home-indicator /
+     Siri swipe zone at the very bottom, instead of sitting right on it. */
+  .pb-safe {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* The inset ALONE, with no added tap-target margin. This is what the app
+     shell puts on its scrolling region so the last few lines of any page clear
+     the iPhone home indicator. `pb-safe` above is for bars PINNED to the
+     bottom, which want the extra 1rem; using it here would double-pad every
+     page that already pins one. */
+  .pb-safe-inset {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Momentum scrolling + no visible scrollbar for horizontal strips. */
+  .no-scrollbar {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
