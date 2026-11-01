@@ -1,0 +1,184 @@
+# Runs Claude Code on the Pro's self-hosted runner when an issue gets the
+# `claude` label (or is opened with it). Only issues authored by the owner run.
+# Claude edits files only (no shell); this workflow commits the result to
+# branch claude/issue-<n> and comments back on the issue. It never touches main.
+#
+# Managed by ~/runners/add-repo.sh on the Pro (MJs-Laptop). The template lives
+# at ~/runners/claude-on-issue.yml there; edit it there and re-run add-repo.sh
+# to push the same file to every repo.
+name: claude-on-issue
+
+on:
+  issues:
+    # Opening an issue with a label fires `labeled` too, so `labeled` alone
+    # covers both cases without running twice.
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: claude-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    if: >-
+      github.event.issue.user.login == 'mickeycoke' &&
+      github.event.label.name == 'claude'
+    runs-on: [self-hosted, pro]
+    # Includes time spent waiting for a Claude slot (see the lock step below).
+    timeout-minutes: 60
+    env:
+      # Issue text goes through env vars only, never ${{ }} inside scripts,
+      # so an issue body cannot inject shell commands.
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_TITLE: ${{ github.event.issue.title }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLAUDE_MODEL: sonnet
+      # Optional long-lived token from `claude setup-token`. When the repo has
+      # no such secret, Claude Code uses the Pro's Keychain login instead.
+      CLAUDE_TOKEN_SECRET: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Machine-wide lock shared by every runner on the Pro: at most
+      # CLAUDE_MAX_SLOTS Claude jobs run at once, the rest wait here.
+      CLAUDE_LOCK_ROOT: ${{ github.workspace }}/../../../../.lock
+      CLAUDE_MAX_SLOTS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Wait for a Claude slot (machine-wide lock)
+        run: |
+          # Each runner lives in ~/runners/<repo>, so the lock root resolves
+          # to ~/runners/.lock whichever runner picked this job up.
+          LOCK_ROOT="$(cd "$CLAUDE_LOCK_ROOT" 2>/dev/null && pwd || echo "$HOME/runners/.lock")"
+          mkdir -p "$LOCK_ROOT"
+          # $PPID is Runner.Worker, which lives exactly as long as this job,
+          # so a slot whose owner pid is gone belongs to a dead job.
+          OWNER_PID="$PPID"
+          waited=0
+          while :; do
+            i=1
+            while [ "$i" -le "$CLAUDE_MAX_SLOTS" ]; do
+              d="$LOCK_ROOT/slot-$i"
+              if mkdir "$d" 2>/dev/null; then
+                printf '%s %s %s\n' "$OWNER_PID" "$GITHUB_RUN_ID" "$REPO" > "$d/owner"
+                echo "CLAUDE_SLOT=$d" >> "$GITHUB_ENV"
+                echo "Acquired $d after ${waited}s"
+                exit 0
+              fi
+              if [ -f "$d/owner" ]; then
+                pid="$(cut -d' ' -f1 "$d/owner")"
+                if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                  echo "Reclaiming stale $d (owner pid $pid is gone)"
+                  rm -rf "$d"
+                  continue
+                fi
+              fi
+              i=$((i + 1))
+            done
+            if [ $((waited % 120)) -eq 0 ]; then
+              echo "All $CLAUDE_MAX_SLOTS Claude slots busy; waiting (${waited}s so far)"
+            fi
+            sleep 15
+            waited=$((waited + 15))
+          done
+
+      - name: Find Claude Code
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.claude/local:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          CLAUDE_BIN="$(command -v claude || true)"
+          if [ -z "$CLAUDE_BIN" ]; then
+            echo "claude CLI not found on this runner" > "$RUNNER_TEMP/claude-output.txt"
+            exit 1
+          fi
+          "$CLAUDE_BIN" --version
+          dirname "$CLAUDE_BIN" >> "$GITHUB_PATH"
+
+      - name: Run Claude Code on the issue
+        run: |
+          if [ -n "$CLAUDE_TOKEN_SECRET" ]; then
+            export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN_SECRET"
+          fi
+          # The runner's background service may start without USER/LOGNAME,
+          # which Claude Code needs to find its login in the macOS Keychain.
+          export USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}"
+          {
+            echo "diag: user=$USER home=$HOME slot=$CLAUDE_SLOT"
+            if security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1; then
+              echo "diag: keychain login found"
+            else
+              echo "diag: keychain login NOT readable from runner"
+            fi
+            # Exit code only; the secret itself is never printed.
+            if security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1; then
+              echo "diag: keychain secret readable"
+            else
+              echo "diag: keychain secret NOT readable (exit $?)"
+            fi
+            for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do
+              echo "diag: $(basename "$p") SessionCreate=$(plutil -extract SessionCreate raw "$p" 2>/dev/null || echo absent)"
+            done
+          } > "$RUNNER_TEMP/diag.txt"
+          cat "$RUNNER_TEMP/diag.txt"
+          git checkout -b "claude/issue-${ISSUE_NUMBER}"
+          PROMPT="$(printf 'You are working on GitHub issue #%s in %s.\n\nTitle: %s\n\n%s\n\nMake the change in this checkout. Do not run git; the workflow commits for you. Finish with a short summary of what you changed.' \
+            "$ISSUE_NUMBER" "$REPO" "$ISSUE_TITLE" "$ISSUE_BODY")"
+          claude -p "$PROMPT" \
+            --model "$CLAUDE_MODEL" \
+            --permission-mode acceptEdits \
+            > "$RUNNER_TEMP/claude-output.txt" 2>&1
+          cat "$RUNNER_TEMP/claude-output.txt"
+
+      - name: Commit and push branch
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Claude Code: issue #${ISSUE_NUMBER}" -m "Ran on self-hosted runner via claude-on-issue."
+            git push origin "claude/issue-${ISSUE_NUMBER}"
+            echo "Pushed branch \`claude/issue-${ISSUE_NUMBER}\`." > "$RUNNER_TEMP/result.txt"
+          else
+            echo "No file changes." > "$RUNNER_TEMP/result.txt"
+          fi
+
+      - name: Release Claude slot
+        if: always()
+        run: |
+          if [ -n "$CLAUDE_SLOT" ] && [ -d "$CLAUDE_SLOT" ]; then
+            rm -rf "$CLAUDE_SLOT"
+            echo "Released $CLAUDE_SLOT"
+          fi
+
+      - name: Comment on the issue
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          tmp = os.environ["RUNNER_TEMP"]
+          def read(name):
+              try:
+                  with open(os.path.join(tmp, name)) as f:
+                      return f.read().strip()
+              except OSError:
+                  return ""
+          output = (read("diag.txt") + "\n" + read("claude-output.txt")).strip()[-6000:] or "(no output)"
+          result = read("result.txt") or "Run did not finish; see the log."
+          body = f"**Claude Code ran on the Pro runner.** {result}\n\n<details><summary>Claude output</summary>\n\n```\n{output}\n```\n</details>\n\n[Run log]({os.environ['RUN_URL']})"
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['ISSUE_NUMBER']}/comments",
+              data=json.dumps({"body": body}).encode(),
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+              },
+              method="POST",
+          )
+          urllib.request.urlopen(req).read()
+          PY
