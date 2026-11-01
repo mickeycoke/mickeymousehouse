@@ -122,7 +122,7 @@ jobs:
               echo "diag: keychain secret NOT readable (exit $?)"
             fi
             for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do
-              echo "diag: $(basename "$p") SessionCreate=$(plutil -extract SessionCreate raw "$p" 2>/dev/null || echo absent)"
+              echo "diag: $(basename "$p") SessionCreate=$(plutil -extract SessionCreate raw "$p" >/dev/null 2>&1 && echo present || echo absent)"
             done
           } > "$RUNNER_TEMP/diag.txt"
           cat "$RUNNER_TEMP/diag.txt"
